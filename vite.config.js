@@ -1,21 +1,37 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#3C6E5B" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="MikelFit" />
-    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-    <link rel="icon" type="image/png" href="icon-192.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" />
-    <title>MikelFit — Objetivo 75 kg</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
+
+// IMPORTANTE: 'base' debe coincidir con el nombre de tu repositorio de GitHub.
+// Si tu repo se llama "mikelfit", déjalo así. Si lo llamas distinto, cámbialo
+// aquí y también en scope/start_url más abajo (p. ej. "/mi-repo/").
+const REPO = "/mikelfit/";
+
+export default defineConfig({
+  base: REPO,
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["apple-touch-icon.png", "favicon.ico"],
+      manifest: {
+        name: "MikelFit — Objetivo 75 kg",
+        short_name: "MikelFit",
+        description: "Seguimiento personal de entrenamiento, nutrición y progreso.",
+        lang: "es",
+        theme_color: "#3C6E5B",
+        background_color: "#F6F2E9",
+        display: "standalone",
+        orientation: "portrait",
+        scope: REPO,
+        start_url: REPO,
+        icons: [
+          { src: "icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+      },
+      workbox: { globPatterns: ["**/*.{js,css,html,png,svg,ico,woff,woff2}"] },
+    }),
+  ],
+});
