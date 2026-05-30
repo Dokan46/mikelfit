@@ -7,11 +7,12 @@ import {
   Flame, Dumbbell, Apple, TrendingDown, Trophy, NotebookPen, Settings,
   Droplets, Footprints, Beef, Scale, Plus, Minus, Check, ChevronLeft,
   ChevronRight, Sparkles, Heart, Moon, Zap, Target, X, Ruler, Quote,
+  Star, ScanLine,
 } from "lucide-react";
 
 /* ────────────────────────────────────────────────────────────
    MikelFit · seguimiento personal — Objetivo 75 kg
-   Datos persistidos con window.storage (sobreviven sesiones)
+   Datos persistidos con localStorage (sobreviven sesiones)
 ──────────────────────────────────────────────────────────── */
 
 const C = {
@@ -114,7 +115,7 @@ const emptyDay = () => ({
   antojos: "",
   notas: "",
 });
-const defaultState = () => ({ config: defaultConfig, dias: {}, revisiones: {}, hitosVistos: [] });
+const defaultState = () => ({ config: defaultConfig, dias: {}, revisiones: {}, hitosVistos: [], favoritos: [] });
 
 /* ── milestones ── */
 const HITOS = [
@@ -351,6 +352,14 @@ export default function App() {
   const setConfig = (patch) => setState((s) => ({ ...s, config: { ...s.config, ...patch } }));
   const setRevision = (w, patch) => setState((s) => ({ ...s, revisiones: { ...s.revisiones, [w]: { ...s.revisiones[w], ...patch } } }));
   const verHito = (id) => setState((s) => ({ ...s, hitosVistos: [...new Set([...s.hitosVistos, id])] }));
+  const addFav = (item) => setState((s) => {
+    const favs = s.favoritos || [];
+    const nom = (item.nombre || "").trim();
+    if (!nom || favs.some((f) => f.nombre.toLowerCase() === nom.toLowerCase())) return s;
+    const nuevo = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), nombre: nom, kcal: +item.kcal || 0, prot: +item.prot || 0 };
+    return { ...s, favoritos: [...favs, nuevo] };
+  });
+  const delFav = (id) => setState((s) => ({ ...s, favoritos: (s.favoritos || []).filter((f) => f.id !== id) }));
 
   const semanaActual = Math.min(Math.max(weekOf(todayKey(), cfg.fechaInicio), 1), cfg.semanasTotal);
   const tabs = [
@@ -402,7 +411,7 @@ export default function App() {
         <main style={{ padding: "0 18px" }} className="fade" key={tab}>
           {tab === "hoy" && <Hoy {...{ state, cfg, sel, setSel, setDay, setSub, aguaVasosObj, rachaActual }} />}
           {tab === "entreno" && <Entreno {...{ state, cfg, sel, setSel, setSub }} />}
-          {tab === "comida" && <Comida {...{ state, cfg, sel, setSel, setDay, setSub, setConfig, aguaVasosObj }} />}
+          {tab === "comida" && <Comida {...{ state, cfg, sel, setSel, setDay, setSub, setConfig, aguaVasosObj, addFav, delFav }} />}
           {tab === "progreso" && <Progreso {...{ state, cfg, allDays }} />}
           {tab === "hitos" && <Hitos {...{ hitoProgreso, state, verHito }} />}
           {tab === "revision" && <Revision {...{ state, cfg, semanaActual, setRevision, hitoProgreso }} />}
@@ -671,26 +680,43 @@ const lbl = { display: "block", fontSize: 12.5, fontWeight: 700, color: C.ink2, 
 const ta = { width: "100%", border: `1px solid ${C.line}`, borderRadius: 12, padding: 11, fontSize: 14, fontFamily: "Hanken Grotesk, sans-serif", resize: "vertical", background: C.bg, color: C.ink, outline: "none" };
 
 /* ════════ ALIMENTACIÓN ════════ */
-function Comida({ state, cfg, sel, setSel, setDay, setSub, setConfig, aguaVasosObj }) {
+function Comida({ state, cfg, sel, setSel, setDay, setSub, setConfig, aguaVasosObj, addFav, delFav }) {
   const d = state.dias[sel] || emptyDay();
   const modo = cfg.modoNutricion;
+  const favs = state.favoritos || [];
   const [nuevo, setNuevo] = useState({ comida: "", nombre: "", kcal: "", prot: "" });
+  const [scanMeal, setScanMeal] = useState(null);
+  const [favEdit, setFavEdit] = useState(false);
 
   const totalKcal = ["desayuno", "comida", "cena", "snack"].reduce((s, m) => s + (d.comidas[m] || []).reduce((a, x) => a + (+x.kcal || 0), 0), 0);
   const totalProt = ["desayuno", "comida", "cena", "snack"].reduce((s, m) => s + (d.comidas[m] || []).reduce((a, x) => a + (+x.prot || 0), 0), 0);
 
-  const addComida = (meal) => {
-    const nom = nuevo.comida === meal ? nuevo.nombre.trim() : "";
+  // añade un alimento a una comida y recalcula los totales del día desde cero
+  const pushFood = (meal, item) => {
+    const nom = (item.nombre || "").trim();
     if (!nom) return;
-    const arr = [...(d.comidas[meal] || []), { nombre: nom, kcal: +nuevo.kcal || 0, prot: +nuevo.prot || 0 }];
+    const arr = [...(d.comidas[meal] || []), { nombre: nom, kcal: +item.kcal || 0, prot: +item.prot || 0 }];
     setSub(sel, "comidas", { [meal]: arr });
-    // sincroniza totales detallados
-    setDay(sel, { kcal: totalKcal + (+nuevo.kcal || 0), proteina: totalProt + (+nuevo.prot || 0) });
+    const meals = ["desayuno", "comida", "cena", "snack"];
+    const comidasNew = { ...d.comidas, [meal]: arr };
+    const tK = meals.reduce((s, m) => s + (comidasNew[m] || []).reduce((a, x) => a + (+x.kcal || 0), 0), 0);
+    const tP = meals.reduce((s, m) => s + (comidasNew[m] || []).reduce((a, x) => a + (+x.prot || 0), 0), 0);
+    setDay(sel, { kcal: tK, proteina: tP });
+  };
+
+  const addComida = (meal) => {
+    if (nuevo.comida !== meal) return;
+    pushFood(meal, { nombre: nuevo.nombre, kcal: nuevo.kcal, prot: nuevo.prot });
     setNuevo({ comida: "", nombre: "", kcal: "", prot: "" });
   };
   const delComida = (meal, i) => {
     const arr = (d.comidas[meal] || []).filter((_, idx) => idx !== i);
     setSub(sel, "comidas", { [meal]: arr });
+    const meals = ["desayuno", "comida", "cena", "snack"];
+    const comidasNew = { ...d.comidas, [meal]: arr };
+    const tK = meals.reduce((s, m) => s + (comidasNew[m] || []).reduce((a, x) => a + (+x.kcal || 0), 0), 0);
+    const tP = meals.reduce((s, m) => s + (comidasNew[m] || []).reduce((a, x) => a + (+x.prot || 0), 0), 0);
+    setDay(sel, { kcal: tK, proteina: tP });
   };
 
   return (
@@ -753,25 +779,216 @@ function Comida({ state, cfg, sel, setSel, setDay, setSub, setConfig, aguaVasosO
                 ))}
               </div>
               {nuevo.comida === meal ? (
-                <div style={{ ...card(), padding: 12, marginTop: 8, display: "grid", gap: 8 }}>
+                <div style={{ ...card(), padding: 12, marginTop: 8, display: "grid", gap: 10 }}>
+                  {favs.length > 0 && (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.ink2 }}>Tus favoritos</span>
+                        <button onClick={() => setFavEdit((v) => !v)} style={{ background: "none", border: "none", color: C.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{favEdit ? "Listo" : "Editar"}</button>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                        {favs.map((f) => (
+                          <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.greenSoft, color: C.greenDeep, borderRadius: 99, padding: "7px 11px", fontSize: 13, fontWeight: 700 }}>
+                            <button onClick={() => pushFood(meal, f)} style={{ background: "none", border: "none", color: "inherit", font: "inherit", cursor: "pointer", padding: 0 }}>{f.nombre} · {f.kcal} kcal</button>
+                            {favEdit && <button onClick={() => delFav(f.id)} title="Quitar favorito" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: 0, lineHeight: 0, display: "flex" }}><X size={13} /></button>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <input autoFocus value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="¿Qué has comido?" style={inp} />
                   <div style={{ display: "flex", gap: 8 }}>
                     <input value={nuevo.kcal} onChange={(e) => setNuevo({ ...nuevo, kcal: e.target.value })} placeholder="kcal" inputMode="numeric" style={{ ...inp, flex: 1 }} />
                     <input value={nuevo.prot} onChange={(e) => setNuevo({ ...nuevo, prot: e.target.value })} placeholder="prot (g)" inputMode="numeric" style={{ ...inp, flex: 1 }} />
-                    <button onClick={() => addComida(meal)} style={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "0 16px", fontWeight: 700, cursor: "pointer" }}>Añadir</button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => { if (nuevo.nombre.trim()) addFav({ nombre: nuevo.nombre, kcal: nuevo.kcal, prot: nuevo.prot }); }} title="Guardar como favorito" style={{ background: C.greenSoft, color: C.greenDeep, border: "none", borderRadius: 10, padding: "0 13px", fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Star size={15} /> Guardar</button>
+                    <button onClick={() => addComida(meal)} style={{ flex: 1, background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "11px 16px", fontWeight: 700, cursor: "pointer" }}>Añadir</button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setNuevo({ comida: meal, nombre: "", kcal: "", prot: "" })} style={{ marginTop: 8, width: "100%", padding: 11, borderRadius: 12, border: `1.5px dashed ${C.line}`, background: "transparent", color: C.green, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Plus size={16} /> Añadir alimento</button>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button onClick={() => setNuevo({ comida: meal, nombre: "", kcal: "", prot: "" })} style={{ flex: 1, padding: 11, borderRadius: 12, border: `1.5px dashed ${C.line}`, background: "transparent", color: C.green, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Plus size={16} /> Añadir alimento</button>
+                  <button onClick={() => setScanMeal(meal)} title="Escanear código de barras" style={{ width: 50, borderRadius: 12, border: `1.5px solid ${C.line}`, background: C.card, color: C.green, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ScanLine size={18} /></button>
+                </div>
               )}
             </Section>
           ))}
         </>
       )}
+
+      {scanMeal && (
+        <Scanner
+          onClose={() => setScanMeal(null)}
+          onResult={(item) => { pushFood(scanMeal, item); setScanMeal(null); }}
+        />
+      )}
     </>
   );
 }
 const inp = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Hanken Grotesk, sans-serif", background: C.bg, color: C.ink, outline: "none", width: "100%" };
+
+/* ════════ ESCÁNER DE CÓDIGO DE BARRAS ════════
+   Cámara con BarcodeDetector nativo (Android/Chrome).
+   En navegadores sin soporte (p. ej. iOS/Safari) cae al alta por código a mano.
+   Macros desde Open Food Facts (gratis, sin clave). */
+function Scanner({ onClose, onResult }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const supported = typeof window !== "undefined" && "BarcodeDetector" in window;
+  const [phase, setPhase] = useState(supported ? "scan" : "manual"); // scan | manual | product
+  const [ean, setEan] = useState("");
+  const [manualEan, setManualEan] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [prod, setProd] = useState(null); // { nombre, kcal100, prot100 }
+  const [gramos, setGramos] = useState("100");
+
+  const stopCam = () => {
+    const s = streamRef.current;
+    if (s) { s.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+  };
+  const close = () => { stopCam(); onClose(); };
+
+  const lookup = async (code) => {
+    stopCam();
+    setEan(code); setBusy(true); setErr(""); setProd(null); setPhase("product");
+    try {
+      const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_es,brands,nutriments`);
+      const j = await r.json();
+      if (j.status !== 1 || !j.product) { setErr("No está en la base de datos. Añádelo a mano abajo."); setBusy(false); return; }
+      const n = j.product.nutriments || {};
+      let kcal100 = n["energy-kcal_100g"];
+      if (kcal100 == null && n["energy_100g"] != null) kcal100 = n["energy_100g"] / 4.184; // kJ → kcal
+      const prot100 = n["proteins_100g"];
+      const nombre = j.product.product_name_es || j.product.product_name || "Producto";
+      const marca = j.product.brands ? ` (${j.product.brands.split(",")[0].trim()})` : "";
+      setProd({
+        nombre: nombre + marca,
+        kcal100: kcal100 != null ? Math.round(kcal100) : null,
+        prot100: prot100 != null ? Math.round(prot100 * 10) / 10 : null,
+      });
+      setBusy(false);
+    } catch (e) {
+      setErr("No se pudo consultar la base de datos. Revisa la conexión o añade a mano.");
+      setBusy(false);
+    }
+  };
+
+  // ciclo de detección por cámara
+  useEffect(() => {
+    if (phase !== "scan" || !supported) return;
+    let stop = false, timer, detector;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (stop) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; try { await videoRef.current.play(); } catch (e) {} }
+        try { detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39"] }); }
+        catch (e) { detector = new window.BarcodeDetector(); }
+        timer = setInterval(async () => {
+          if (stop || !videoRef.current || !detector) return;
+          try {
+            const codes = await detector.detect(videoRef.current);
+            if (codes && codes.length) { clearInterval(timer); lookup(codes[0].rawValue); }
+          } catch (e) { /* frame sin código */ }
+        }, 450);
+      } catch (e) {
+        setErr("No se pudo abrir la cámara. Usa el alta manual por código.");
+        setPhase("manual");
+      }
+    })();
+    return () => { stop = true; clearInterval(timer); stopCam(); };
+  }, [phase, supported]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => stopCam(), []); // por si se desmonta
+
+  const confirmar = () => {
+    if (!prod) return;
+    const g = +gramos || 100;
+    const kcal = prod.kcal100 != null ? Math.round(prod.kcal100 * g / 100) : 0;
+    const prot = prod.prot100 != null ? Math.round(prod.prot100 * g / 100 * 10) / 10 : 0;
+    onResult({ nombre: `${prod.nombre} · ${g} g`, kcal, prot });
+    close();
+  };
+
+  const overlay = { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(20,16,10,.55)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 };
+  const sheet = { width: "100%", maxWidth: 600, background: C.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "92vh", overflowY: "auto", animation: "fade .25s ease both" };
+  const head = (title) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ScanLine size={18} color={C.green} /><span style={{ fontFamily: "Fraunces, serif", fontSize: 19, fontWeight: 600 }}>{title}</span></div>
+      <button onClick={close} style={{ background: C.bg2, border: "none", borderRadius: 10, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.ink2 }}><X size={18} /></button>
+    </div>
+  );
+
+  return (
+    <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div style={sheet}>
+        {head("Escanear alimento")}
+
+        {phase === "scan" && (
+          <>
+            <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#000", aspectRatio: "4 / 3" }}>
+              <video ref={videoRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                <div style={{ width: "78%", height: "38%", border: `3px solid ${C.amber}`, borderRadius: 12, boxShadow: "0 0 0 9999px rgba(0,0,0,.25)" }} />
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: C.muted, textAlign: "center", margin: "12px 0 10px" }}>Encuadra el código de barras dentro del recuadro.</p>
+            <button onClick={() => { stopCam(); setPhase("manual"); }} style={{ ...btnSecScan }}>Escribir el código a mano</button>
+          </>
+        )}
+
+        {phase === "manual" && (
+          <>
+            {!supported && <p style={{ fontSize: 13, color: C.muted, marginTop: 0 }}>Este navegador no permite escanear con la cámara. Escribe el código de barras (EAN) del producto:</p>}
+            {supported && <p style={{ fontSize: 13, color: C.muted, marginTop: 0 }}>Escribe el código de barras (EAN) del producto:</p>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={manualEan} onChange={(e) => setManualEan(e.target.value.replace(/\D/g, ""))} placeholder="p. ej. 8410076472058" inputMode="numeric" style={{ ...inp, flex: 1 }} />
+              <button onClick={() => manualEan && lookup(manualEan)} style={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "0 18px", fontWeight: 700, cursor: "pointer" }}>Buscar</button>
+            </div>
+            {supported && <button onClick={() => { setErr(""); setPhase("scan"); }} style={{ ...btnSecScan, marginTop: 10 }}>Volver a la cámara</button>}
+          </>
+        )}
+
+        {phase === "product" && (
+          <>
+            {busy && <div style={{ textAlign: "center", color: C.muted, padding: "22px 0" }}>Buscando en Open Food Facts…</div>}
+            {!busy && prod && (
+              <div style={{ display: "grid", gap: 14 }}>
+                <div style={{ ...card(), padding: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{prod.nombre}</div>
+                  <div style={{ fontSize: 12.5, color: C.muted }}>Código {ean} · por 100 g: {prod.kcal100 != null ? `${prod.kcal100} kcal` : "kcal n/d"} · {prod.prot100 != null ? `${prod.prot100} g prot` : "prot n/d"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, marginBottom: 6 }}>¿Cuántos gramos?</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input value={gramos} onChange={(e) => setGramos(e.target.value.replace(/[^\d.]/g, ""))} inputMode="numeric" style={{ ...inp, width: 120 }} />
+                    <span style={{ color: C.muted, fontSize: 13 }}>g</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: C.ink2, marginTop: 10 }}>
+                    Se añadirá: <b>{prod.kcal100 != null ? Math.round(prod.kcal100 * (+gramos || 0) / 100) : 0} kcal</b> · <b>{prod.prot100 != null ? Math.round(prod.prot100 * (+gramos || 0) / 100 * 10) / 10 : 0} g prot</b>
+                  </div>
+                </div>
+                <button onClick={confirmar} style={{ background: C.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 16px", fontWeight: 700, cursor: "pointer" }}>Añadir a la comida</button>
+                {supported && <button onClick={() => { setProd(null); setErr(""); setPhase("scan"); }} style={btnSecScan}>Escanear otro</button>}
+              </div>
+            )}
+            {!busy && err && (
+              <div style={{ marginTop: prod ? 0 : 4 }}>
+                <p style={{ fontSize: 13.5, color: C.red, fontWeight: 600 }}>{err}</p>
+                <button onClick={() => { setProd(null); setErr(""); setManualEan(ean || manualEan); setPhase("manual"); }} style={btnSecScan}>Probar con otro código</button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+const btnSecScan = { width: "100%", padding: 12, borderRadius: 12, border: `1.5px solid ${C.line}`, background: C.card, color: C.green, fontWeight: 700, cursor: "pointer" };
+
 function MacroCard({ label, cur, obj, suffix, color, soft, invert }) {
   const pct = obj ? (cur / obj) * 100 : 0;
   const ok = invert ? cur <= obj && cur > 0 : cur >= obj;
